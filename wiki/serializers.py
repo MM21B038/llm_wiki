@@ -22,3 +22,4 @@ class DocumentSerializer(serializers.ModelSerializer):
         model = Document
         fields = ["id", "workspace", "file", "status"]
         read_only_fields = ["id", "status"]
+

@@ -1,0 +1,10 @@
+.venv
+__pycache__
+*.pyc
+.git
+.cursor
+postgres
+redis
+media
+*.ipynb
+experiments

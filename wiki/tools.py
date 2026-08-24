@@ -1,4 +1,7 @@
 from datetime import datetime
+from django.utils import timezone
+from zoneinfo import ZoneInfo
+
 from pathlib import Path
 from typing import List, Optional, Union
 from uuid import UUID
@@ -11,7 +14,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
 
-from wiki.models import Workspace
+from wiki.models import Workspace, Chunk, WikiPage
 from wiki.schemas import (
     DeleteWikiPageRequest,
     DeleteWikiPageResponse,
@@ -36,6 +39,8 @@ import numpy as np
 import os
 from dotenv import load_dotenv
 load_dotenv()
+
+IST = ZoneInfo("Asia/Kolkata")
 
 def add_line_numbers(text: str, width: int = 5) -> str:
     """
@@ -113,7 +118,7 @@ def _dump_post(path: Path, data: frontmatter.Post) -> None:
 
 
 def _touch_updated_at(data: frontmatter.Post) -> None:
-    data.metadata["updated_at"] = datetime.now().isoformat()
+    data.metadata["updated_at"] = datetime.now(IST).isoformat()
 
 
 def _unified_diff(old_content: str, new_content: str, filename: str) -> str:
@@ -126,9 +131,14 @@ def _unified_diff(old_content: str, new_content: str, filename: str) -> str:
         )
     )
 
-
 def _dump_result(model: BaseModel) -> str:
     return model.model_dump_json()
+
+def _update_wiki_page(wiki_page: WikiPage, chunk: Chunk) -> None:
+    wiki_page.updated_at = timezone.now()
+    if chunk not in wiki_page.chunks.all():
+        wiki_page.chunks.add(chunk)
+    wiki_page.save()
 
 vec = Vector(
     model=os.getenv("EMB"),
@@ -146,32 +156,24 @@ def _tokenize(text: str) -> list[str]:
 )
 def search_relevant_wiki_pages(workspace_id: int, query: str, top_k: int = 10, bm25_weight: float = 0.3, semantic_weight: float = 0.7) -> str:
     print(f"Searching for relevant wiki pages for workspace {workspace_id} with query: {query}, top_k: {top_k}, bm25_weight: {bm25_weight}, semantic_weight: {semantic_weight}")
-    wiki_dir = _workspace_wiki_dir(workspace_id)
-    if isinstance(wiki_dir, str):
-        return wiki_dir
-    if not check_document_exists(wiki_dir):
-        return "No wiki pages found in the workspace, please create a new wiki page first."
     if query is None or query.strip() == "":
         return "Query is required, please provide a valid query."
-    results = []
+    workspace = Workspace.objects.get(id=workspace_id)
+    if not workspace:
+        return "Workspace not found, please check the workspace ID and try again."
+    wiki_pages = WikiPage.objects.filter(workspace=workspace)
+    if not wiki_pages:
+        return "No wiki pages found in the workspace, please create a new wiki page first."
     texts = []
-    for file in wiki_dir.glob("*.md"):
-        with open(file, "r") as f:
-            data = frontmatter.load(f)
-        metadata = _metadata_from_post(data)
-        results.append(metadata)
+    for wiki_page in wiki_pages:
         texts.append(
-            " ".join([metadata.title, metadata.description, " ".join(metadata.tags)])
+            " ".join([wiki_page.title, wiki_page.description or "", " ".join(wiki_page.tags)])
         )
 
-    if not results:
-        return _dump_result(MetadataResponse(wikis_metadata=[]))
-    
     corpus = [_tokenize(text) for text in texts]
     query_tokens = _tokenize(query)
     bm25 = BM25Okapi(corpus)
     lexical_scores = bm25.get_scores(query_tokens)
-
 
     doc_embeddings = vec.vector(texts)
     query_embedding = vec.vector(query)
@@ -182,43 +184,63 @@ def search_relevant_wiki_pages(workspace_id: int, query: str, top_k: int = 10, b
 
     hybrid_scores = (lexical_scores * bm25_weight + semantic_scores * semantic_weight) / (bm25_weight + semantic_weight)
 
+    top_k = min(top_k, len(texts))
+    
     top_indices = np.argpartition(hybrid_scores, -top_k)[-top_k:]
     print(f"Top indices: {top_indices} for query: {query}")
-    top_results = [results[i] for i in top_indices]
+    top_results = []
+    for i in top_indices:
+        top_results.append(Metadata(
+            id=wiki_pages[i].uuid,
+            title=wiki_pages[i].title,
+            description=wiki_pages[i].description or "",
+            tags=wiki_pages[i].tags,
+            created_at=wiki_pages[i].created_at.isoformat(),
+            updated_at=wiki_pages[i].updated_at.isoformat(),
+        ))
     return _dump_result(MetadataResponse(wikis_metadata=top_results))
 
 @tool(
     args_schema=WikiPage,
     description="Create a new wiki page in the workspace with the given metadata and optional initial body",
 )
-def create_wiki_page(workspace_id: int, metadata: Metadata, body: Optional[str] = None) -> str:
+def create_wiki_page(workspace_id: int, chunk_id: int, metadata: Metadata, body: Optional[str] = None) -> str:
+    if not check_workspace_exists(workspace_id):
+        return "Workspace not found, please check the workspace ID and try again."
     print(f"Creating wiki page for workspace {workspace_id} with metadata: {metadata}")
     wiki_dir = _workspace_wiki_dir(workspace_id)
-    if isinstance(wiki_dir, str):
-        return wiki_dir
 
     path = wiki_dir / f"{metadata.id}.md"
     path.parent.mkdir(parents=True, exist_ok=True)
     post = frontmatter.Post(body or "", **_metadata_to_dict(metadata))
     _dump_post(path, post)
+    wiki_page = WikiPage.objects.create(
+        workspace=Workspace.objects.get(id=workspace_id),
+        title=metadata.title,
+        description=metadata.description,
+        tags=metadata.tags,
+    )
+    wiki_page.chunks.add(Chunk.objects.get(id=chunk_id))
+    wiki_page.save()
     return f"Wiki page created successfully with wiki page ID: {metadata.id}"
 
 
-# @tool(
-#     args_schema=InsertBodyRequest,
-#     description="Replace the entire body of the wiki page with the given body",
-# )
-# def replace_wiki_page_body(workspace_id: int, wiki_page_id: UUID, body: str) -> str:
-#     print(f"Replacing wiki page body for workspace {workspace_id} with wiki page ID: {wiki_page_id}")
-#     path = _wiki_page_path(workspace_id, wiki_page_id)
-#     if isinstance(path, str):
-#         return path
-#     with open(path, "r") as f:
-#         data = frontmatter.load(f)
-#     data.content = body
-#     _touch_updated_at(data)
-#     _dump_post(path, data)
-#     return f"Body replaced successfully with wiki page ID: {wiki_page_id}"
+@tool(
+    args_schema=InsertBodyRequest,
+    description="Replace the entire body of the wiki page with the given body",
+)
+def replace_wiki_page_body(workspace_id: int, chunk_id: int, wiki_page_id: UUID, body: str) -> str:
+    print(f"Replacing wiki page body for workspace {workspace_id} with wiki page ID: {wiki_page_id}")
+    path = _wiki_page_path(workspace_id, wiki_page_id)
+    if isinstance(path, str):
+        return path
+    with open(path, "r") as f:
+        data = frontmatter.load(f)
+    data.content = body
+    _touch_updated_at(data)
+    _dump_post(path, data)
+    _update_wiki_page(WikiPage.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
+    return f"Body replaced successfully with wiki page ID: {wiki_page_id}"
 
 
 @tool(
@@ -246,7 +268,7 @@ def read_wiki_page(workspace_id: int, wiki_page_id: UUID) -> str:
     args_schema=UpdateWikiPageRequest,
     description="Update a character span of the wiki page body with the given new content and start and end line numbers",
 )
-def update_wiki_page_content(workspace_id: int, wiki_page_id: UUID, update: Update) -> str:
+def update_wiki_page_content(workspace_id: int, chunk_id: int, wiki_page_id: UUID, update: Update) -> str:
     print(f"Updating wiki page body for workspace {workspace_id} with wiki page ID: {wiki_page_id}")
     path = _wiki_page_path(workspace_id, wiki_page_id)
     if isinstance(path, str):
@@ -261,6 +283,7 @@ def update_wiki_page_content(workspace_id: int, wiki_page_id: UUID, update: Upda
     _dump_post(path, data)
     applied_updates=_unified_diff(old_content, new_content, f"{wiki_page_id}.md")
     print(f"Applied updates: {applied_updates}")
+    _update_wiki_page(WikiPage.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
     return _dump_result(
         UpdateWikiPageResponse(
             workspace_id=workspace_id,
@@ -276,6 +299,7 @@ def update_wiki_page_content(workspace_id: int, wiki_page_id: UUID, update: Upda
 )
 def update_wiki_page_metadata(
     workspace_id: int,
+    chunk_id: int,
     wiki_page_id: UUID,
     title: Optional[str] = None,
     description: Optional[str] = None,
@@ -295,6 +319,15 @@ def update_wiki_page_metadata(
         data.metadata["tags"] = tags
     _touch_updated_at(data)
     _dump_post(path, data)
+    wiki_page = WikiPage.objects.get(uuid=wiki_page_id)
+    _update_wiki_page(wiki_page, Chunk.objects.get(id=chunk_id))
+    if title:
+        wiki_page.title = title
+    if description:
+        wiki_page.description = description
+    if tags:
+        wiki_page.tags = tags
+    wiki_page.save()
     return _dump_result(
         UpdateWikiPageMetadataResponse(
             workspace_id=workspace_id,
@@ -310,6 +343,7 @@ def update_wiki_page_metadata(
 )
 def insert_new_content(
     workspace_id: int,
+    chunk_id: int,
     wiki_page_id: UUID,
     insert_index: int,
     content: str,
@@ -325,6 +359,7 @@ def insert_new_content(
     data.content = new_content
     _touch_updated_at(data)
     _dump_post(path, data)
+    _update_wiki_page(WikiPage.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
     return _dump_result(
         InsertWikiPageDataResponse(
             workspace_id=workspace_id,
@@ -344,6 +379,8 @@ def delete_wiki_page(workspace_id: int, wiki_page_id: UUID) -> str:
     if isinstance(path, str):
         return path
     path.unlink()
+    wiki_page = WikiPage.objects.get(uuid=wiki_page_id)
+    wiki_page.delete()
     return _dump_result(
         DeleteWikiPageResponse(
             workspace_id=workspace_id,
@@ -356,7 +393,7 @@ def delete_wiki_page(workspace_id: int, wiki_page_id: UUID) -> str:
 tools = [
     search_relevant_wiki_pages,
     create_wiki_page,
-    # replace_wiki_page_body,
+    replace_wiki_page_body,
     read_wiki_page,
     update_wiki_page_content,
     update_wiki_page_metadata,
