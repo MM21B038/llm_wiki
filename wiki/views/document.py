@@ -8,9 +8,9 @@ from wiki.models import Document, Chunk
 from wiki.serializers import DocumentSerializer
 from pathlib import Path
 from typing import List
-import threading
-from wiki.services.agent import wiki_agent
 from wiki.enum import Status
+from django_rq import get_queue
+from wiki.tasks import process_chunk
 
 CHUNK_SIZE = 4096
 ENCODER = tiktoken.encoding_for_model("gpt-4o-mini")
@@ -27,6 +27,19 @@ def make_chunks(document: Document) -> List[str]:
         chunks.append(ENCODER.decode(tokens[i:i+CHUNK_SIZE]))
     return chunks
 
+def retry_chunks() -> None:
+    document = Document.objects.get(status=Status.FAILED)
+    if document:
+        chunks = Chunk.objects.filter(document=document, status=Status.FAILED)
+        if chunks:
+            retry_queue = get_queue("wiki_retry")
+            for chunk in chunks:
+                retry_queue.enqueue(process_chunk, chunk.id, job_timeout=1800)
+                chunk.status=Status.QUEUED
+                chunk.save()
+            document.status = Status.PROCESSING
+            document.save()
+
 class DocumentView(GenericAPIView):
     serializer_class = DocumentSerializer
     queryset = Document.objects.all()
@@ -39,12 +52,13 @@ class DocumentView(GenericAPIView):
         document = serializer.instance
         chunks = make_chunks(document)
         if chunks:
+            queue = get_queue("wiki")
             for chunk in chunks:
                 chunk = Chunk.objects.create(document=document, content=chunk, status=Status.PENDING)
-                thread = threading.Thread(target=wiki_agent, args=(document.workspace.id, chunk))
-                thread.start()
-            document.status = Status.PROCESSING
-            document.save()
+                queue.enqueue(process_chunk, chunk.id, job_timeout=1800)
+                Chunk.objects.filter(id=chunk.id).update(status=Status.QUEUED)
+            Document.objects.filter(id=document.id).update(status=Status.PROCESSING)
+            retry_chunks()
             return Response(DocumentSerializer(document).data, status=status.HTTP_201_CREATED)
         else:
             return Response(serializer.data, status=status.HTTP_204_NO_CONTENT)
@@ -56,5 +70,4 @@ class DocumentView(GenericAPIView):
         )
         document.file.delete(save=False)
         document.delete()
-        Chunk.objects.filter(document=document).delete()
         return Response(status=status.HTTP_204_NO_CONTENT)

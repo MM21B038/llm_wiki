@@ -20,5 +20,6 @@ from wiki.urls import urlpatterns as wiki_urls
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('wiki/', include(wiki_urls)),
+    path('api/v1/wiki/', include(wiki_urls)),
+    path('django-rq/', include('django_rq.urls')),
 ]

@@ -54,3 +54,6 @@ Desktop.ini
 .vscode/
 *.swp
 *.swo
+
+postgres/
+redis/

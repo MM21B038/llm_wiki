@@ -1,0 +1,110 @@
+services:
+  redis:
+    image: redis:7
+    command: redis-server --appendonly yes
+    ports:
+      - 6379:6379
+    volumes:
+      - ./redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - wiki_network
+
+  postgres:
+    image: postgres:17
+    ports:
+      - 5432:5432
+    volumes:
+      - ./postgres:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_USER=llm_wiki
+      - POSTGRES_PASSWORD=llm_wiki
+      - POSTGRES_DB=llm_wiki
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "llm_wiki"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wiki_network
+
+
+  web:
+    build: .
+    command: >
+      sh -c "uv run python manage.py migrate &&
+             uv run python manage.py runserver 0.0.0.0:8000"
+    ports:
+      - 8000:8000
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: llm_wiki
+      POSTGRES_USER: llm_wiki
+      POSTGRES_PASSWORD: llm_wiki
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+    volumes:
+      - ./media:/app/media
+    depends_on:
+      - redis
+      - postgres
+    networks:
+      - wiki_network
+    healthcheck:
+      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/wiki/health/')"]
+      start_period: 10s
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: .
+    command: uv run python manage.py rqworker wiki
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: llm_wiki
+      POSTGRES_USER: llm_wiki
+      POSTGRES_PASSWORD: llm_wiki
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+    volumes:
+      - ./media:/app/media
+    depends_on:
+      - redis
+      - postgres
+      - web
+    networks:
+      - wiki_network
+
+  worker_retry:
+    build: .
+    command: uv run python manage.py rqworker wiki wiki_retry
+    env_file: .env
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: llm_wiki
+      POSTGRES_USER: llm_wiki
+      POSTGRES_PASSWORD: llm_wiki
+      REDIS_URL: redis://redis:6379/0
+      DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+    volumes:
+      - ./media:/app/media
+    depends_on:
+      - redis
+      - postgres
+      - web
+    networks:
+      - wiki_network
+
+networks:
+  wiki_network:
+    driver: bridge
