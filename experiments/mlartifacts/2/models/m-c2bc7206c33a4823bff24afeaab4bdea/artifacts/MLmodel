@@ -1,0 +1,42 @@
+artifact_path: mlflow-artifacts:/2/models/m-c2bc7206c33a4823bff24afeaab4bdea/artifacts
+flavors:
+  python_function:
+    env:
+      conda: conda.yaml
+      virtualenv: python_env.yaml
+    loader_module: mlflow.sklearn
+    model_path: model.pkl
+    predict_fn: predict
+    python_version: 3.14.6
+  sklearn:
+    code: null
+    pickled_model: model.pkl
+    serialization_format: cloudpickle
+    sklearn_version: 1.9.0
+    skops_trusted_types: null
+is_signature_from_type_hint: false
+mlflow_version: 3.15.2
+model_id: m-c2bc7206c33a4823bff24afeaab4bdea
+model_size_bytes: 3690506
+model_uuid: m-c2bc7206c33a4823bff24afeaab4bdea
+prompts: null
+run_id: 1b640981dee64e038979aa029e0e5265
+signature:
+  inputs: '[{"type": "long", "name": "battery_power", "required": true}, {"type":
+    "long", "name": "blue", "required": true}, {"type": "double", "name": "clock_speed",
+    "required": true}, {"type": "long", "name": "dual_sim", "required": true}, {"type":
+    "long", "name": "fc", "required": true}, {"type": "long", "name": "four_g", "required":
+    true}, {"type": "long", "name": "int_memory", "required": true}, {"type": "double",
+    "name": "m_dep", "required": true}, {"type": "long", "name": "mobile_wt", "required":
+    true}, {"type": "long", "name": "n_cores", "required": true}, {"type": "long",
+    "name": "pc", "required": true}, {"type": "long", "name": "px_height", "required":
+    true}, {"type": "long", "name": "px_width", "required": true}, {"type": "long",
+    "name": "ram", "required": true}, {"type": "long", "name": "sc_h", "required":
+    true}, {"type": "long", "name": "sc_w", "required": true}, {"type": "long", "name":
+    "talk_time", "required": true}, {"type": "long", "name": "three_g", "required":
+    true}, {"type": "long", "name": "touch_screen", "required": true}, {"type": "long",
+    "name": "wifi", "required": true}]'
+  outputs: '[{"type": "tensor", "tensor-spec": {"dtype": "int64", "shape": [-1]}}]'
+  params: null
+type_hint_from_example: false
+utc_time_created: '2026-08-27 06:57:52.537096'

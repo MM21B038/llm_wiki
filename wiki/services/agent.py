@@ -1,5 +1,9 @@
 import os
-from composer import Agent, Thread, SystemMessage, HumanMessage, ToolMessage, ToolResultHideRule
+from agent.agent import Agent
+from agent.thread import Thread
+from agent.thread_rules import ThreadHideRule, AutoToolHideRule
+from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
+from langchain_openai import ChatOpenAI
 from wiki.tools import tools
 from dotenv import load_dotenv
 load_dotenv()
@@ -13,10 +17,14 @@ import frontmatter
 wiki_skill = frontmatter.load(Path("wiki/services/skills/wiki.md")).content
 wiki_mcp_skill = frontmatter.load(Path("wiki/services/skills/wiki_mcp.md")).content
 
-agent = Agent(
+llm = ChatOpenAI(
     model=os.getenv("LLM"),
     base_url=os.getenv("BASE_URL"), 
     api_key=os.getenv("API_KEY"),
+)
+
+agent = Agent(
+    model=llm,
     tools=tools,
 )
 
@@ -32,14 +40,16 @@ def wiki_agent(workspace_id: int, chunk: Chunk) -> Any:
             f"- this is the new content to be processed: {chunk.content}",
         )
         thread = Thread(
-            compression_max_tokens=96000,
             compression_prompt=compression_prompt,
-            compression_tail_messages=4,
+            token_limit=96000,
             tool_hide_rules=[
-                ToolResultHideRule(
-                    tool_name="read_wiki_page",
-                    on_hide_message="[earlier read_wiki_page result collapsed — see latest]",
-                    hide_mode="persist",
+                ThreadHideRule(
+                    name="read_wiki_page",
+                    message="[earlier read_wiki_page result collapsed — see latest]",
+                ),
+                AutoToolHideRule(
+                    token_limit=64_000,
+                    per_tool_token_limit=6_000,
                 )
             ]
         )
