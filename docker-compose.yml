@@ -32,6 +32,22 @@ services:
     networks:
       - wiki_network
 
+  mongo:
+    image: mongo:8
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=kali
+      - MONGO_INITDB_ROOT_PASSWORD=kali
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./mongo:/data/db
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - wiki_network
 
   web:
     build: .
@@ -49,19 +65,15 @@ services:
       POSTGRES_PASSWORD: llm_wiki
       REDIS_URL: redis://redis:6379/0
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+      MONGO_URI: "mongodb://kali:kali@mongo:27017/?authSource=admin&directConnection=true"
     volumes:
       - ./media:/app/media
     depends_on:
       - redis
       - postgres
+      - mongo
     networks:
       - wiki_network
-    healthcheck:
-      test: ["CMD", "uv", "run", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/wiki/health/')"]
-      start_period: 10s
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   worker:
     build: .
@@ -75,11 +87,13 @@ services:
       POSTGRES_PASSWORD: llm_wiki
       REDIS_URL: redis://redis:6379/0
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+      MONGO_URI: "mongodb://kali:kali@mongo:27017/?authSource=admin&directConnection=true"
     volumes:
       - ./media:/app/media
     depends_on:
       - redis
       - postgres
+      - mongo
       - web
     networks:
       - wiki_network
@@ -96,11 +110,13 @@ services:
       POSTGRES_PASSWORD: llm_wiki
       REDIS_URL: redis://redis:6379/0
       DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,web
+      MONGO_URI: "mongodb://kali:kali@mongo:27017/?authSource=admin&directConnection=true"
     volumes:
       - ./media:/app/media
     depends_on:
       - redis
       - postgres
+      - mongo
       - web
     networks:
       - wiki_network

@@ -26,6 +26,8 @@ class WorkspaceView(GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         workspace = serializer.save()
+        (settings.MEDIA_ROOT / workspace.name / "raw").mkdir(parents=True, exist_ok=True)
+        (settings.MEDIA_ROOT / workspace.name / "wiki").mkdir(parents=True, exist_ok=True)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def delete(self, request) -> Response:
