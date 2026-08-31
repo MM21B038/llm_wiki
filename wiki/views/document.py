@@ -28,17 +28,17 @@ def make_chunks(document: Document) -> List[str]:
     return chunks
 
 def retry_chunks() -> None:
-    document = Document.objects.get(status=Status.FAILED)
-    if document:
+    retry_queue = get_queue("wiki_retry")
+    for document in Document.objects.filter(status=Status.FAILED):
         chunks = Chunk.objects.filter(document=document, status=Status.FAILED)
-        if chunks:
-            retry_queue = get_queue("wiki_retry")
-            for chunk in chunks:
-                retry_queue.enqueue(process_chunk, chunk.id, job_timeout=1800)
-                chunk.status=Status.QUEUED
-                chunk.save()
-            document.status = Status.PROCESSING
-            document.save()
+        if not chunks.exists():
+            continue
+        for chunk in chunks:
+            retry_queue.enqueue(process_chunk, chunk.id, job_timeout=1800)
+            chunk.status = Status.QUEUED
+            chunk.save()
+        document.status = Status.PROCESSING
+        document.save()
 
 class DocumentView(GenericAPIView):
     serializer_class = DocumentSerializer

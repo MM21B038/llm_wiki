@@ -5,6 +5,7 @@ __pycache__
 .cursor
 postgres
 redis
+mongo
 media
 *.ipynb
 experiments

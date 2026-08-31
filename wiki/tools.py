@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from pydantic import BaseModel
 from rank_bm25 import BM25Okapi
 
-from wiki.models import Workspace, Chunk, WikiPage
+from wiki.models import Workspace, Chunk, WikiPage as WikiPageModel
 from wiki.schemas import (
     DeleteWikiPageRequest,
     DeleteWikiPageResponse,
@@ -134,7 +134,7 @@ def _unified_diff(old_content: str, new_content: str, filename: str) -> str:
 def _dump_result(model: BaseModel) -> str:
     return model.model_dump_json()
 
-def _update_wiki_page(wiki_page: WikiPage, chunk: Chunk) -> None:
+def _update_wiki_page(wiki_page: WikiPageModel, chunk: Chunk) -> None:
     wiki_page.updated_at = timezone.now()
     if chunk not in wiki_page.chunks.all():
         wiki_page.chunks.add(chunk)
@@ -161,7 +161,7 @@ def search_relevant_wiki_pages(workspace_id: int, query: str, top_k: int = 10, b
     workspace = Workspace.objects.get(id=workspace_id)
     if not workspace:
         return "Workspace not found, please check the workspace ID and try again."
-    wiki_pages = WikiPage.objects.filter(workspace=workspace)
+    wiki_pages = list(WikiPageModel.objects.filter(workspace=workspace))
     if not wiki_pages:
         return "No wiki pages found in the workspace, please create a new wiki page first."
     texts = []
@@ -214,7 +214,8 @@ def create_wiki_page(workspace_id: int, chunk_id: int, metadata: Metadata, body:
     path.parent.mkdir(parents=True, exist_ok=True)
     post = frontmatter.Post(body or "", **_metadata_to_dict(metadata))
     _dump_post(path, post)
-    wiki_page = WikiPage.objects.create(
+    wiki_page = WikiPageModel.objects.create(
+        uuid=metadata.id,
         workspace=Workspace.objects.get(id=workspace_id),
         title=metadata.title,
         description=metadata.description,
@@ -239,7 +240,7 @@ def replace_wiki_page_body(workspace_id: int, chunk_id: int, wiki_page_id: UUID,
     data.content = body
     _touch_updated_at(data)
     _dump_post(path, data)
-    _update_wiki_page(WikiPage.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
+    _update_wiki_page(WikiPageModel.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
     return f"Body replaced successfully with wiki page ID: {wiki_page_id}"
 
 
@@ -277,13 +278,13 @@ def update_wiki_page_content(workspace_id: int, chunk_id: int, wiki_page_id: UUI
         data = frontmatter.load(f)
     old_content = data.content
     print(f"Update: {update.start}, {update.end}, {update.new_content}")
-    new_content = apply_updates(old_content, [update])
+    new_content = apply_updates(old_content, update.start, update.end, update.new_content)
     data.content = new_content
     _touch_updated_at(data)
     _dump_post(path, data)
     applied_updates=_unified_diff(old_content, new_content, f"{wiki_page_id}.md")
     print(f"Applied updates: {applied_updates}")
-    _update_wiki_page(WikiPage.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
+    _update_wiki_page(WikiPageModel.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
     return _dump_result(
         UpdateWikiPageResponse(
             workspace_id=workspace_id,
@@ -305,7 +306,7 @@ def update_wiki_page_metadata(
     description: Optional[str] = None,
     tags: Optional[List[str]] = None,
 ) -> str:
-    print(f"Inserting new content for workspace {workspace_id} with wiki page ID: {wiki_page_id} and insert index: {insert_index}")
+    print(f"Updating wiki page metadata for workspace {workspace_id} with wiki page ID: {wiki_page_id}")
     path = _wiki_page_path(workspace_id, wiki_page_id)
     if isinstance(path, str):
         return path
@@ -319,7 +320,7 @@ def update_wiki_page_metadata(
         data.metadata["tags"] = tags
     _touch_updated_at(data)
     _dump_post(path, data)
-    wiki_page = WikiPage.objects.get(uuid=wiki_page_id)
+    wiki_page = WikiPageModel.objects.get(uuid=wiki_page_id)
     _update_wiki_page(wiki_page, Chunk.objects.get(id=chunk_id))
     if title:
         wiki_page.title = title
@@ -359,7 +360,7 @@ def insert_new_content(
     data.content = new_content
     _touch_updated_at(data)
     _dump_post(path, data)
-    _update_wiki_page(WikiPage.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
+    _update_wiki_page(WikiPageModel.objects.get(uuid=wiki_page_id), Chunk.objects.get(id=chunk_id))
     return _dump_result(
         InsertWikiPageDataResponse(
             workspace_id=workspace_id,
@@ -379,7 +380,7 @@ def delete_wiki_page(workspace_id: int, wiki_page_id: UUID) -> str:
     if isinstance(path, str):
         return path
     path.unlink()
-    wiki_page = WikiPage.objects.get(uuid=wiki_page_id)
+    wiki_page = WikiPageModel.objects.get(uuid=wiki_page_id)
     wiki_page.delete()
     return _dump_result(
         DeleteWikiPageResponse(
@@ -399,4 +400,9 @@ tools = [
     update_wiki_page_metadata,
     insert_new_content,
     delete_wiki_page,
+]
+
+chat_tools = [
+    search_relevant_wiki_pages,
+    read_wiki_page
 ]

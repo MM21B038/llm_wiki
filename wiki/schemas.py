@@ -37,12 +37,14 @@ class MetadataResponse(BaseModel):
 
 class WikiPage(BaseModel):
     workspace_id: int = Field(..., description="The ID of the workspace")
+    chunk_id: int = Field(..., description="The ID of the chunk being processed")
     metadata: Metadata = Field(..., description="The metadata of the wiki page")
     body: Optional[str] = Field(default=None, description="The body of the wiki page")
 
 
 class InsertBodyRequest(BaseModel):
     workspace_id: int = Field(..., description="The ID of the workspace")
+    chunk_id: int = Field(..., description="The ID of the chunk being processed")
     wiki_page_id: UUID = Field(..., description="The ID of the wiki page")
     body: str = Field(..., description="The full replacement body of the wiki page")
 
@@ -70,6 +72,7 @@ class Update(BaseModel):
 
 class UpdateWikiPageRequest(BaseModel):
     workspace_id: int = Field(..., description="The ID of the workspace")
+    chunk_id: int = Field(..., description="The ID of the chunk being processed")
     wiki_page_id: UUID = Field(..., description="The ID of the wiki page")
     update: Update = Field(..., description="The span replacement to apply to the wiki page body")
 
@@ -82,6 +85,7 @@ class UpdateWikiPageResponse(BaseModel):
 
 class UpdateWikiPageMetadataRequest(BaseModel):
     workspace_id: int = Field(..., description="The ID of the workspace")
+    chunk_id: int = Field(..., description="The ID of the chunk being processed")
     wiki_page_id: UUID = Field(..., description="The ID of the wiki page")
     title: Optional[str] = Field(default=None, description="The updated title of the wiki page")
     description: Optional[str] = Field(
@@ -98,6 +102,7 @@ class UpdateWikiPageMetadataResponse(BaseModel):
 
 class InsertWikiPageDataRequest(BaseModel):
     workspace_id: int = Field(..., description="The ID of the workspace")
+    chunk_id: int = Field(..., description="The ID of the chunk being processed")
     wiki_page_id: UUID = Field(..., description="The ID of the wiki page")
     insert_index: int = Field(..., description="The character index at which to insert the new content")
     content: str = Field(..., description="The content to insert at the insert index")
