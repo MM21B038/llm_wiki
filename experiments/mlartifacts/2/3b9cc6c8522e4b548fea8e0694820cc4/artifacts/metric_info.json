@@ -1,0 +1,4 @@
+{
+  "accuracy_score_X_test_scaled": "accuracy_score(y_true=y_test, y_pred=y_pred)",
+  "recall_score_X_test_scaled": "recall_score(y_true=y_test, y_pred=y_pred, average='weighted')"
+}
