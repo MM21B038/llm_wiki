@@ -25,7 +25,7 @@ def get_collection():
 def insert_thread(thread: Thread, workspace_id: int):
     collection = get_collection()
     result = collection.find_one({"workspace_id": workspace_id})
-    messages = []
+    messages = result["messages"] if result else []
     if thread.tail is not None:
         thread = thread.tail
     for m in thread:
@@ -50,15 +50,16 @@ def insert_thread(thread: Thread, workspace_id: int):
                 "message": m.model_dump(),
             })
     if result:
-        collection.update_one({
+        collection.update_one(
+            {"workspace_id": workspace_id},
+            {"$set": {"messages": messages}},
+            upsert=True,
+        )
+    else:
+        collection.insert_one({
             "workspace_id": workspace_id,
             "messages": messages,
         })
-        return result
-    collection.insert_one({
-        "workspace_id": workspace_id,
-        "messages": messages,
-    })
 
 
 def get_messages(workspace_id: int):
