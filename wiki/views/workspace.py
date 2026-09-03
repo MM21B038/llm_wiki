@@ -7,6 +7,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.generics import GenericAPIView
 from rest_framework.parsers import JSONParser
+from django.shortcuts import get_object_or_404
 from wiki.models import Workspace, Document
 from wiki.serializers import (
     WorkspaceSerializer,
