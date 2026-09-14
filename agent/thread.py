@@ -34,7 +34,7 @@ class Thread:
             if index == -1 or index == 0:
                 self.messages = messages
             else:
-                raise Valueerror(
+                raise ValueError(
                     f"system message not at the starting, it was found at {index} index"
                 )
                     
