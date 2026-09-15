@@ -5,13 +5,14 @@ from agent.thread import Thread
 from agent.internal_tools import InternalTools
 
 class Agent:
-    def __init__(self, model: ChatOpenAI, tools=List):
+    def __init__(self, model: ChatOpenAI, tools: List = None):
         self.model = model
         self.tools = tools
+        self.tool_map = {}
         if self.tools:
             self.tools.extend(InternalTools.tools())
             self.model = self.model.bind_tools(self.tools)
-        self.tool_map = {tool.name: tool for tool in self.tools}
+            self.tool_map = {tool.name: tool for tool in self.tools}
             
     def invoke(self, thread: Thread, self_append: bool = True):
         if thread.tail is not None:
