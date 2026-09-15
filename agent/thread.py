@@ -81,14 +81,17 @@ class Thread:
             tool_hide_rules = self.root.tool_hide_rules
         else:
             tool_hide_rules = self.tool_hide_rules
-
-        thread_hide_rules = [rule for rule in tool_hide_rules if isinstance(rule, ThreadHideRule)]
-        
+            
         auto_tool_hide_rules = None
-        for rule in tool_hide_rules:
-            if isinstance(rule, AutoToolHideRule):
-                auto_tool_hide_rules = rule
-                break
+        
+        if tool_hide_rules is not None:
+            thread_hide_rules = [rule for rule in tool_hide_rules if isinstance(rule, ThreadHideRule)]
+        
+            auto_tool_hide_rules = None
+            for rule in tool_hide_rules:
+                if isinstance(rule, AutoToolHideRule):
+                    auto_tool_hide_rules = rule
+                    break
         
             
         if isinstance(message, ToolMessage) and tool_hide_rules is not None:
