@@ -27,6 +27,10 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+HOST = "localhost"
+PORT = 8002
+URL = f"http://{HOST}:{PORT}/"
+
 RPC_URL = "/"
 
 llm = ChatOpenAI(
@@ -84,38 +88,63 @@ class MyExecutor(AgentExecutor):
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         pass
 
-card = AgentCard(
+cybersecurity_skill = AgentSkill(
+    id="cybersecurity_analysis",
+    name="Cybersecurity Analysis",
+    description=(
+        "Analyzes and answers cybersecurity-related questions, including "
+        "vulnerability assessment, penetration testing, security concepts, "
+        "threat analysis, and security best practices."
+    ),
+    tags=[
+        "cybersecurity",
+        "vulnerability-assessment",
+        "penetration-testing",
+        "security-analysis",
+        "threat-analysis",
+    ],
+    examples=[
+        "Explain SQL injection and how to prevent it",
+        "Analyze this web application vulnerability",
+        "How does SSRF work?",
+        "Explain CVE impact and mitigation",
+    ],
+    input_modes=["text/plain"],
+    output_modes=["text/plain"],
+)
+
+agent_card = AgentCard(
     name = "CyberSecurity Agent",
     description = "It will answer to any cybersecurity related query",
     version = "0.1.0",
     supported_interfaces = [
         AgentInterface(
-            url = "http://localhost:8001/",
+            url = URL,
             protocol_binding = TransportProtocol.JSONRPC
         )
     ],
     capabilities = AgentCapabilities(streaming = False, push_notifications = False),
     default_input_modes=["text/plain"],
     default_output_modes=["text/plain"],
-    skills=[],
+    skills=[cybersecurity_skill],
 )
 
 task_store = InMemoryTaskStore()
 
-executor = MyExecutor()
+agent_executor = MyExecutor()
 
-handler = DefaultRequestHandler(
-    agent_executor = executor,
+request_handler = DefaultRequestHandler(
+    agent_executor = agent_executor,
     task_store = task_store,
-    agent_card = card,
+    agent_card = agent_card,
 )
 
 app = FastAPI()
 
-for route in create_agent_card_routes(agent_card = card):
+for route in create_agent_card_routes(agent_card = agent_card):
     app.router.routes.append(route)
-for route in create_jsonrpc_routes(request_handler = handler, rpc_url = RPC_URL):
+for route in create_jsonrpc_routes(request_handler = request_handler, rpc_url = RPC_URL):
     app.router.routes.append(route)
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8001)
+    uvicorn.run(app, host=HOST, port=PORT)

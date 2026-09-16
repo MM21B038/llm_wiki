@@ -1,8 +1,35 @@
+import asyncio
+import threading
 from langchain_core.messages import ToolMessage
 from langchain_openai import ChatOpenAI
 from typing import List, Iterator, Any
 from agent.thread import Thread
 from agent.internal_tools import InternalTools
+
+def run_sync(coro):
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+
+    result = []
+    error = []
+
+    def runner():
+        try:
+            result.append(asyncio.run(coro))
+        except BaseException as e:
+            error.append(e)
+
+    thread = threading.Thread(target=runner)
+    thread.start()
+    thread.join()
+
+    if error:
+        raise error[0]
+
+    return result[0]
+
 
 class Agent:
     def __init__(self, model: ChatOpenAI, tools: List = None):
@@ -14,12 +41,12 @@ class Agent:
             self.model = self.model.bind_tools(self.tools)
             self.tool_map = {tool.name: tool for tool in self.tools}
             
-    def invoke(self, thread: Thread, self_append: bool = True):
+    async def ainvoke(self, thread: Thread, self_append: bool = True):
         if thread.tail is not None:
             thread = thread.tail
         thread.agent = self
         while True:
-            response = self.model.invoke(thread.messages)
+            response = await self.model.ainvoke(thread.messages)
             
             if not self_append:
                 thread.agent = None
@@ -32,13 +59,21 @@ class Agent:
                     call_id = tool["id"]
                     name = tool["name"]
                     try:
-                        result = self.tool_map[name].invoke(args)
+                        result = await self.tool_map[name].ainvoke(args)
                     except Exception as e:
                         result = f"Error: {e}"
                     thread.append(ToolMessage(name=name, content=result, tool_call_id=call_id))
             else:
                 thread.agent = None
                 return response
+
+    def invoke(self, thread: Thread, self_append: bool = True):
+        return run_sync(
+            self.ainvoke(
+                thread=thread, 
+                self_append=self_append
+            )
+        )
     
     def stream(
         self,
