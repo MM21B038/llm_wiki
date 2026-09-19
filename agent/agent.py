@@ -62,7 +62,7 @@ class Agent:
                         result = await self.tool_map[name].ainvoke(args)
                     except Exception as e:
                         result = f"Error: {e}"
-                    thread.append(ToolMessage(name=name, content=result, tool_call_id=call_id))
+                    thread.append(ToolMessage(name=name, content=str(result), tool_call_id=call_id))
             else:
                 thread.agent = None
                 return response

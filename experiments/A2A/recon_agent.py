@@ -23,12 +23,15 @@ from agent.agent import Agent
 from agent.thread import Thread
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import HumanMessage, SystemMessage, AIMessage, ToolMessage
+from experiments.A2A.mcp_server import webgent, task_manager, recon
+from experiments.A2A.skill import RECON_CONTEXT
+from agent.mcp_config import MCPClient
 from dotenv import load_dotenv
 
 load_dotenv()
 
 HOST = "localhost"
-PORT = 8002
+PORT = 8003
 URL = f"http://{HOST}:{PORT}/"
 
 RPC_URL = "/"
@@ -39,23 +42,49 @@ llm = ChatOpenAI(
     model=os.getenv("LLM"),
 )
 
-system = SystemMessage("""
-You are specialized in CyberSecurity Domain for any query related to cybersecurity you have to respond in a well in-depth report.
-""")
+system = """
+You are a ReAct agent. Complete the user-provided recon task, at the end after completion of the task return with a full findings report.
+Just do as much told to, Not to do full recon unless specified.
+
+You will be provided `WEBGENT SERVER SKILL` and `TASK MANAGER SERVER SKILL` for your references to how you can optimally use tools respectively.
+You will also be provided an `RECON SKILL` to how to specifically do full recon.
+
+=====================
+WEBGENT SERVER SKILL
+=====================
+
+{webgent}
+
+=====================
+TASK MANAGER SERVER SKILL
+=====================
+
+{task_manager}
+
+=====================
+RECON SKILL
+=====================
+
+{recon}
+"""
 
 class MyExecutor(AgentExecutor):
 
     def __init__(self):
-        self.agent = Agent(
-            model = llm
-        )
+        self.servers = [webgent, task_manager, recon]
+        self.client = MCPClient(self.servers)
     
     async def execute(self, context: RequestContext, event_queue: EventQueue) -> None:
 
+        self.agent = Agent(
+            model = llm,
+            tools = await self.client.get_tools()
+        )
+
+
         user_text = get_message_text(context.message)
-        
+
         task = context.current_task or new_task_from_user_message(context.message)
-        # user_text = context.get_user_input()
 
         await event_queue.enqueue_event(task)
 
@@ -67,12 +96,30 @@ class MyExecutor(AgentExecutor):
         )
 
         try:
+            webgent_skill = (await self.client.get_prompt(
+                "webgent",
+                "agent_system_prompt"
+            ))[0].content
+
+            task_manager_skill = (await self.client.get_prompt(
+                "task_manager",
+                "agent_system_prompt"
+            ))[0].content
+
             thread = Thread()
-            system | thread
+            SystemMessage(
+                system.format(
+                    webgent = webgent_skill,
+                    task_manager = task_manager_skill,
+                    recon = RECON_CONTEXT
+                )
+            ) | thread
+
             HumanMessage(user_text) | thread
+
             response = self.agent.invoke(thread)
             response_text = response.content
-            # response_message = new_text_message(response_text)
+            
             await updater.update_status(
                 TaskState.TASK_STATE_COMPLETED,
                 message = updater.new_agent_message([Part(text=response_text)])
@@ -88,34 +135,35 @@ class MyExecutor(AgentExecutor):
     async def cancel(self, context: RequestContext, event_queue: EventQueue) -> None:
         pass
 
-cybersecurity_skill = AgentSkill(
-    id="cybersecurity_analysis",
-    name="Cybersecurity Analysis",
-    description=(
-        "Analyzes and answers cybersecurity-related questions, including "
-        "vulnerability assessment, penetration testing, security concepts, "
-        "threat analysis, and security best practices."
-    ),
+skill = AgentSkill(
+    id="Web Recon",
+    name="Web Recon",
+    description="Agent is capabale to do a full recon on the provided target or any specific target or multi targets",
     tags=[
-        "cybersecurity",
-        "vulnerability-assessment",
-        "penetration-testing",
-        "security-analysis",
-        "threat-analysis",
+        "recon",
+        "browsing-capability",
+        "task-rought-note-management-capability",
+        "nmap_scan",
+        "gobuster_scan",
+        "dirb_scan",
+        "nikto_scan",
+        "metasploit_run",
+        "hydra_attack",
+        "john_crack",
+        "wpscan_analyze",
+        "enum4linux_scan",
     ],
     examples=[
-        "Explain SQL injection and how to prevent it",
-        "Analyze this web application vulnerability",
-        "How does SSRF work?",
-        "Explain CVE impact and mitigation",
+        "Do a full recon on scanme.nmap.org",
+        "Look for any critical findings on https://ginandjuice.shop/vulnerabilities"
     ],
     input_modes=["text/plain"],
     output_modes=["text/plain"],
 )
 
 agent_card = AgentCard(
-    name = "CyberSecurity Agent",
-    description = "It will answer to any cybersecurity related query",
+    name = "Web Recon",
+    description = "Agent is capabale to do a full recon on the provided target or any specific target or multi targets",
     version = "0.1.0",
     supported_interfaces = [
         AgentInterface(
@@ -126,7 +174,7 @@ agent_card = AgentCard(
     capabilities = AgentCapabilities(streaming = False, push_notifications = False),
     default_input_modes=["text/plain"],
     default_output_modes=["text/plain"],
-    skills=[cybersecurity_skill],
+    skills=[skill],
 )
 
 task_store = InMemoryTaskStore()
