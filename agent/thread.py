@@ -42,15 +42,10 @@ class Thread:
             index = self._find_system_message(self.messages)
             if isinstance(self.system_prompt, str):
                 self.system_prompt = SystemMessage(self.system_prompt)
-            if index == 0:
-                if len(self.messages) == 0:
-                    self.append(self.system_prompt)
-                else:
-                    self[0] = self.system_prompt
             elif index == -1:
                 self.messages = [self.system_prompt] + self.messages
             else:
-                pass
+                
 
     @classmethod
     def get_tool_result_path(cls):

@@ -39,6 +39,16 @@ system = SystemMessage("""
 You are specialized in CyberSecurity Domain for any query related to cybersecurity you have to respond in a well in-depth report. For other related queries or general queries respond with message - I can't answer your query. Please ask Cybersecurity related query.
 """)
 
+@dataclass(slots=True)
+class DownloadStore:
+    content : bytes
+
+store = DownloadStore(content=b"")
+
+
+
+
+
 class MyExecutor(AgentExecutor):
 
     def __init__(self):
